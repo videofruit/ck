@@ -210,8 +210,11 @@ func (c *Client) CreateTagSubscription(req SubscriptionRequest) (Subscription, e
 	}
 
 	path := fmt.Sprintf("/v3/tags/%d/subscribe", req.Tags[0])
-	err := c.postJSON(path, req, &subscription)
-	return subscription, err
+	response := struct {
+		Subscription Subscription `json:"subscription"`
+	}{}
+	err := c.postJSON(path, req, &response)
+	return response.Subscription, err
 }
 
 func (c *Client) subscriberPage(page int, query *SubscriberQuery) (*subscriberPage, error) {
