@@ -133,6 +133,16 @@ type SubscriptionRequest struct {
 	APIKey    string            `json:"api_key"`
 }
 
+// AddTag appends newTag to Tags if it is not alredy in Tags
+func (r *SubscriptionRequest) AddTag(newTag int) {
+	for _, tag := range r.Tags {
+		if tag == newTag {
+			return
+		}
+	}
+	r.Tags = append(r.Tags, newTag)
+}
+
 // Subscribers returns a list of all confirmed subscribers.
 func (c *Client) Subscribers(query *SubscriberQuery) ([]Subscriber, error) {
 	p, err := c.subscriberPage(1, query)
