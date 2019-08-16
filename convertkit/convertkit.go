@@ -3,6 +3,7 @@
 package convertkit
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -106,6 +107,42 @@ type subscriberPage struct {
 	Subscribers      []Subscriber `json:"subscribers"`
 }
 
+// Subscription is a subscriber's association with a tag
+type Subscription struct {
+	ID               int        `json:"id"`
+	State            string     `json:"state"`
+	CreatedAt        time.Time  `json:"created_at"`
+	Source           string     `json:"source"`
+	Referrer         string     `json:"referrer"`
+	SubscribableID   int        `json:"subscribable_id"`
+	SubscribableType string     `json:"subscribable_type"`
+	Subscriber       Subscriber `json:"subscriber"`
+}
+
+// SubscriptionRequest is a set of parameters to subscriber a subscriber to a tag
+//
+// `ApiKey` will use the client's ApiKey if unspecified
+// `Email` and at least one `Tags` are required.
+// `Fields` keys must be custom field names already specified in ConvertKit.
+// This API call cannot create new custom fields.
+type SubscriptionRequest struct {
+	Email     string            `json:"email"`
+	FirstName string            `json:"first_name"`
+	Fields    map[string]string `json:"fields"`
+	Tags      []int             `json:"tags"`
+	APIKey    string            `json:"api_key"`
+}
+
+// AddTag appends newTag to Tags if it is not alredy in Tags
+func (r *SubscriptionRequest) AddTag(newTag int) {
+	for _, tag := range r.Tags {
+		if tag == newTag {
+			return
+		}
+	}
+	r.Tags = append(r.Tags, newTag)
+}
+
 // Subscribers returns a list of all confirmed subscribers.
 func (c *Client) Subscribers(query *SubscriberQuery) ([]Subscriber, error) {
 	p, err := c.subscriberPage(1, query)
@@ -157,6 +194,37 @@ func (c *Client) TotalSubscribers() (int, error) {
 		return 0, err
 	}
 	return p.TotalSubscribers, nil
+}
+
+// TagSubscriber adds a tag to a subscriber
+//
+// This method will also create a subscriber with the email address provided if one does not exist.
+func (c *Client) TagSubscriber(email string, tagID int) (Subscription, error) {
+
+	return c.CreateTagSubscription(SubscriptionRequest{
+		Email: email,
+		Tags:  []int{tagID},
+	})
+}
+
+// CreateTagSubscription tags a subscriber with a tag whild allowing access to set the optional parameters
+// allowed by ConvertKit through a `SubscriptionRequest`
+func (c *Client) CreateTagSubscription(req SubscriptionRequest) (Subscription, error) {
+	subscription := Subscription{}
+	if len(req.Tags) < 1 {
+		return subscription, errors.New("Must specify at least one Tag to create a subscription")
+	}
+
+	if req.APIKey == "" {
+		req.APIKey = c.config.Key
+	}
+
+	path := fmt.Sprintf("/v3/tags/%d/subscribe", req.Tags[0])
+	response := struct {
+		Subscription Subscription `json:"subscription"`
+	}{}
+	err := c.postJSON(path, req, &response)
+	return response.Subscription, err
 }
 
 func (c *Client) subscriberPage(page int, query *SubscriberQuery) (*subscriberPage, error) {
@@ -229,4 +297,31 @@ func (c *Client) sendRequest(method, url string, body io.Reader, out interface{}
 	}
 
 	return json.NewDecoder(resp.Body).Decode(out)
+}
+
+func (c *Client) postJSON(path string, reqStruct, out interface{}) error {
+	body, err := json.Marshal(reqStruct)
+	if err != nil {
+		return err
+	}
+
+	req, err := http.NewRequest("POST", c.config.Endpoint+path, bytes.NewBuffer(body))
+	if err != nil {
+		return err
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.config.HTTPClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("HTTP error: %s", resp.Status)
+	}
+
+	return json.NewDecoder(resp.Body).Decode(out)
+
 }
